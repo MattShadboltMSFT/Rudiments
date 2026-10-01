@@ -41,9 +41,12 @@ The timing estimate cannot identify which hand you use, grade accents or
 grace strokes individually, or guarantee detection with every drum/room setup.
 Place the iPhone near the drum and use headphones: while listening, the
 synthesized guide strokes are muted to prevent the app from scoring its own
-sound, but the metronome and four-beat count-in remain audible. The mic status
-shows detected hits so you can check that the phone is hearing your drum.
-Without headphones, the phone may hear its own metronome and skew the result.
+sound. The metronome and four-beat count-in are scheduled, but iPhone Safari
+may silence or reroute playback while capturing microphone audio; the
+synchronized visual beat provides a fallback. Disable the mic for dependable
+audible practice. The mic status shows detected hits so you can check that
+the phone is hearing your drum. Without headphones, the phone may hear its
+own metronome and skew the result.
 Quiet ghost notes may not be detected. Audio is processed on your device and
 is not recorded or uploaded; only hit counts are stored in this browser.
 The microphone stops when you pause, finish or leave the tab, and resumes

@@ -9,6 +9,7 @@ const list = $("exercise-list");
 const pattern = $("pattern");
 const playButton = $("play-button");
 const completion = $("completion");
+const isIPhone = /iPhone|iPod/.test(navigator.userAgent);
 const wakeLock = createWakeLock(navigator, document, (message) => {
   $("wake-status").textContent = message;
   $("wake-status").hidden = !message;
@@ -33,7 +34,7 @@ const state = {
   micWanted: false, micStream: null, micSource: null, micAnalyser: null, micOutput: null, micOpening: null,
   micRequest: 0, score: new StrokeScore(session.scores?.[session.selected]?.hits, session.scores?.[session.selected]?.total),
   detector: createOnsetDetector(), micSamples: new Float32Array(512), detectedHits: 0, micListeningAt: 0,
-  detectedHits: 0,
+  beatEvents: [], activeBeat: 0,
 };
 let savedSecond = -1;
 
@@ -50,6 +51,8 @@ function renderAccuracy() {
   box.append(help);
   $("mic-button").textContent = state.micWanted ? "DISABLE MIC" : "ENABLE MIC";
   $("mic-button").setAttribute("aria-pressed", String(state.micWanted));
+  $("mic-routing-warning").hidden = !isIPhone || !state.micWanted;
+  $("visual-beat").hidden = !state.running && !state.micWanted;
 }
 
 function micStatus(message) {
@@ -239,6 +242,8 @@ function setPhase(phase) {
   state.phaseElapsed = 0;
   state.phaseStartedAt = performance.now();
   state.pending = [];
+  state.beatEvents = [];
+  showBeat(0);
   setActive(-1);
   if (phase === "count-in") {
     state.nextCountBeat = 0;
@@ -294,6 +299,12 @@ function renderStatus() {
   $("progress").setAttribute("aria-valuenow", String(Math.floor(seconds)));
   $("play-label").textContent = state.running ? "PAUSE PRACTICE" : state.elapsedBeforePause ? "RESUME PRACTICE" : "START PRACTICE";
   playButton.querySelector(".play-icon").textContent = state.running ? "Ⅱ" : "▶";
+  $("visual-beat").hidden = !state.running && !state.micWanted;
+  if (state.audio) {
+    while (state.beatEvents.length && state.beatEvents[0].time <= state.audio.currentTime) {
+      showBeat(state.beatEvents.shift().beat);
+    }
+  }
   if (state.micStream && state.running && state.phase === "playing") {
     const previousTotal = state.score.total;
     const previousHits = state.score.hits;
@@ -362,6 +373,8 @@ function stop() {
   clearInterval(state.scheduler);
   cancelAnimationFrame(state.frame);
   state.pending = [];
+  state.beatEvents = [];
+  showBeat(0);
   if (state.master) state.master.gain.setValueAtTime(0, state.audio.currentTime);
   closeMicrophone();
   setActive(-1);
@@ -440,7 +453,14 @@ function drum(time, level) {
   source.stop(time + .08);
 }
 
-function click(time) {
+function showBeat(beat) {
+  if (state.activeBeat === beat) return;
+  state.activeBeat = beat;
+  $("beat-number").textContent = beat || "—";
+  [...$("beat-pips").children].forEach((pip, index) => pip.classList.toggle("on", index === beat - 1));
+}
+
+function click(time, beat) {
   const audio = state.audio;
   const tone = audio.createOscillator();
   const gain = audio.createGain();
@@ -451,12 +471,13 @@ function click(time) {
   tone.connect(gain).connect(state.master);
   tone.start(time);
   tone.stop(time + .04);
+  state.beatEvents.push({ time, beat });
 }
 
 function scheduleCountIn(now) {
   const beatSeconds = 60 / tempoAt(state.elapsedBeforePause);
   while (state.nextCountBeat < COUNT_IN_BEATS && state.nextCountTime < now + .12) {
-    click(state.nextCountTime);
+    click(state.nextCountTime, state.nextCountBeat + 1);
     state.nextCountBeat++;
     state.nextCountTime += beatSeconds;
   }
@@ -505,7 +526,7 @@ function schedule() {
     if (state.micStream) state.score.expect(time, tempoAt(projected));
     if ($("metronome").checked) {
       for (let i = 0; i < note.units; i++) {
-        if ((state.unitCount + i) % 4 === 0) click(time + i * unitLength);
+        if ((state.unitCount + i) % 4 === 0) click(time + i * unitLength, Math.floor((state.unitCount + i) / 4) % 4 + 1);
       }
     }
     state.pending.push({ time, index: state.nextIndex });

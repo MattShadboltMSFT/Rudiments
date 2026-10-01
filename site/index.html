@@ -54,10 +54,15 @@
             <div class="progress-track" role="progressbar" aria-label="Exercise progress" aria-valuemin="0" aria-valuemax="300" aria-valuenow="0" id="progress"><span id="progress-fill"></span></div>
             <div class="progress-caption"><span>WARM UP · 60 BPM</span><span>BUILD UP · 120 BPM</span></div>
           </section>
+          <div id="visual-beat" class="visual-beat" aria-label="Visual metronome" hidden>
+            <span>VISUAL BEAT</span><span id="beat-pips" class="beat-pips" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+            <span id="beat-number">—</span>
+          </div>
           <section class="scoring-panel" aria-label="Microphone stroke timing">
             <div class="mic-row"><div><strong>Listen to my playing</strong><small id="mic-status">Off · timing only, not hand detection</small></div><button id="mic-button" type="button" class="session-button secondary" aria-pressed="false">ENABLE MIC</button></div>
             <div id="accuracy" class="accuracy" role="status" aria-live="off">Timing accuracy: — <small>Enable mic to score your strokes.</small></div>
           </section>
+          <p id="mic-routing-warning" class="mic-routing-warning" role="status" hidden>iPhone Safari can silence or reroute the metronome while the microphone is active. Follow the visual beat above for timing, or disable the mic to restore audible practice.</p>
           <p id="phase-status" class="phase-status" role="status" aria-live="polite" hidden></p>
           <p id="feedback" class="feedback" role="alert" hidden></p>
           <p id="wake-status" class="wake-status" role="status" hidden></p>
