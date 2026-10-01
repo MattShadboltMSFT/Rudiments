@@ -19,7 +19,9 @@ Open http://127.0.0.1:4173 and press **Start practice**. The first click
 enables audio in your browser. Choose a rudiment from the library; pause with
 the button or Space (when no control has focus). Leaving the tab pauses the
 session. Use headphones for the cleanest click. Run `npm test` for the exercise
-and tempo checks.
+and tempo checks. On iPhone, turn up **media volume**; if sound is still
+silent, check the silent switch. Safari's audio-session support varies across
+iOS versions, and the app reports if the audio context is interrupted.
 
 The tempo rises every 24 seconds of **playing time**. Before each increase,
 the strokes stop for a two-second rest, then four audible beats count you in
@@ -38,10 +40,12 @@ completion. Skipped strokes count as misses only while the mic is listening.
 The timing estimate cannot identify which hand you use, grade accents or
 grace strokes individually, or guarantee detection with every drum/room setup.
 Place the iPhone near the drum and use headphones: while listening, the
-synthesized strokes and playing metronome are muted to prevent the app from
-scoring its own sound, but the four-beat count-in remains audible. Quiet
-ghost notes may not be detected. Audio is processed on your device and is
-not recorded or uploaded; only hit counts are stored in this browser.
+synthesized guide strokes are muted to prevent the app from scoring its own
+sound, but the metronome and four-beat count-in remain audible. The mic status
+shows detected hits so you can check that the phone is hearing your drum.
+Without headphones, the phone may hear its own metronome and skew the result.
+Quiet ghost notes may not be detected. Audio is processed on your device and
+is not recorded or uploaded; only hit counts are stored in this browser.
 The microphone stops when you pause, finish or leave the tab, and resumes
 when you restart practice. Permission needs HTTPS or localhost.
 

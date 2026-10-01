@@ -30,9 +30,10 @@ const state = {
   activeIndex: -1, audio: null, master: null, noise: null, scheduler: null, frame: null,
   starting: false, generation: 0,
   nextCountBeat: 0, nextCountTime: 0,
-  micWanted: false, micStream: null, micSource: null, micAnalyser: null, micOutput: null,
+  micWanted: false, micStream: null, micSource: null, micAnalyser: null, micOutput: null, micOpening: null,
   micRequest: 0, score: new StrokeScore(session.scores?.[session.selected]?.hits, session.scores?.[session.selected]?.total),
-  detector: createOnsetDetector(), micSamples: new Float32Array(512),
+  detector: createOnsetDetector(), micSamples: new Float32Array(512), detectedHits: 0, micListeningAt: 0,
+  detectedHits: 0,
 };
 let savedSecond = -1;
 
@@ -44,7 +45,7 @@ function renderAccuracy() {
     : "Timing accuracy: —";
   const help = document.createElement("small");
   help.textContent = state.micWanted
-    ? "Timing estimate only · use headphones · count-in remains audible."
+    ? "Timing estimate only · guide strokes muted; metronome stays audible. Use headphones."
     : "Enable mic to score your strokes.";
   box.append(help);
   $("mic-button").textContent = state.micWanted ? "DISABLE MIC" : "ENABLE MIC";
@@ -55,8 +56,13 @@ function micStatus(message) {
   $("mic-status").textContent = message;
 }
 
+function setAudioSessionType(type) {
+  if (navigator.audioSession) navigator.audioSession.type = type;
+}
+
 function closeMicrophone() {
   state.micRequest++;
+  state.micOpening = null;
   state.score.discardPending(state.audio?.currentTime ?? 0);
   if (state.micStream) {
     for (const track of state.micStream.getTracks()) track.stop();
@@ -69,12 +75,24 @@ function closeMicrophone() {
   state.micAnalyser = null;
   state.micOutput = null;
   state.detector.reset();
+  setAudioSessionType("playback");
   if (state.micWanted) micStatus("Ready · mic resumes when practice starts");
   renderAccuracy();
 }
 
-async function openMicrophone() {
-  if (state.micStream) return;
+function openMicrophone() {
+  if (state.micStream) return Promise.resolve();
+  if (state.micOpening) return state.micOpening;
+  const opening = acquireMicrophone();
+  state.micOpening = opening;
+  const clearOpening = () => {
+    if (state.micOpening === opening) state.micOpening = null;
+  };
+  void opening.then(clearOpening, clearOpening);
+  return opening;
+}
+
+async function acquireMicrophone() {
   const request = ++state.micRequest;
   if (!navigator.mediaDevices?.getUserMedia) {
     state.micWanted = false;
@@ -86,29 +104,41 @@ async function openMicrophone() {
   micStatus("Requesting microphone permission…");
   let stream;
   try {
-    stream = await navigator.mediaDevices.getUserMedia({
+    ensureAudio();
+    setAudioSessionType("play-and-record");
+    const resumed = state.audio.resume();
+    const capture = navigator.mediaDevices.getUserMedia({
       audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
       video: false,
     });
+    const [audioResult, mediaResult] = await Promise.allSettled([resumed, capture]);
+    if (mediaResult.status === "fulfilled") stream = mediaResult.value;
+    if (audioResult.status === "rejected") throw audioResult.reason;
+    if (mediaResult.status === "rejected") throw mediaResult.reason;
+    if (state.audio.state !== "running") throw new Error(`Audio context is ${state.audio.state}. Tap Enable mic again.`);
     if (request !== state.micRequest || !state.micWanted || document.hidden) {
       stream.getTracks().forEach((track) => track.stop());
       return;
     }
-    ensureAudio();
     const source = state.audio.createMediaStreamSource(stream);
     const filter = state.audio.createBiquadFilter();
     filter.type = "highpass";
     filter.frequency.value = 130;
+    const lowpass = state.audio.createBiquadFilter();
+    lowpass.type = "lowpass";
+    lowpass.frequency.value = 700;
     const analyser = state.audio.createAnalyser();
     analyser.fftSize = 1024;
     const output = state.audio.createGain();
     output.gain.value = 0;
-    source.connect(filter).connect(analyser).connect(output).connect(state.audio.destination);
+    source.connect(filter).connect(lowpass).connect(analyser).connect(output).connect(state.audio.destination);
     state.micStream = stream;
     state.micSource = source;
     state.micAnalyser = analyser;
     state.micOutput = output;
     state.detector.reset();
+    state.detectedHits = 0;
+    state.micListeningAt = performance.now();
     stream.getAudioTracks()[0].addEventListener("ended", () => {
       if (state.micStream === stream) {
         closeMicrophone();
@@ -117,7 +147,7 @@ async function openMicrophone() {
         renderAccuracy();
       }
     });
-    micStatus("Listening · guide muted · headphones recommended");
+    micStatus(state.running ? "Listening · 0 hits detected · use headphones" : "Mic ready · start practice to score strokes");
     $("feedback").hidden = true;
     renderAccuracy();
   } catch (error) {
@@ -269,7 +299,12 @@ function renderStatus() {
     const previousHits = state.score.hits;
     state.micAnalyser.getFloatTimeDomainData(state.micSamples);
     if (state.detector.sample(state.micSamples, state.audio.currentTime)) {
+      state.detectedHits++;
+      micStatus(`Listening · ${state.detectedHits} hits detected · use headphones`);
       state.score.hit(state.audio.currentTime);
+    } else if (!state.detectedHits && performance.now() - state.micListeningAt > 5000 &&
+               !$("mic-status").textContent.startsWith("No hits detected")) {
+      micStatus("No hits detected · move the phone closer to your drum");
     }
     state.score.flush(state.audio.currentTime);
     if (previousTotal !== state.score.total || previousHits !== state.score.hits) renderAccuracy();
@@ -373,7 +408,14 @@ function ensureAudio() {
   if (state.audio) return;
   const AudioContextClass = window.AudioContext || window.webkitAudioContext;
   if (!AudioContextClass) throw new Error("Your browser does not support Web Audio.");
+  setAudioSessionType(state.micWanted ? "play-and-record" : "playback");
   state.audio = new AudioContextClass();
+  state.audio.addEventListener("statechange", () => {
+    if (state.running && state.audio.state !== "running") {
+      stop();
+      showError("Audio was interrupted. Tap Resume practice to restart audio and microphone.");
+    }
+  });
   state.master = state.audio.createGain();
   state.master.connect(state.audio.destination);
   const noise = state.audio.createBuffer(1, Math.floor(state.audio.sampleRate * .12), state.audio.sampleRate);
@@ -403,7 +445,7 @@ function click(time) {
   const tone = audio.createOscillator();
   const gain = audio.createGain();
   tone.type = "sine";
-  tone.frequency.value = 950;
+  tone.frequency.value = 1600;
   gain.gain.setValueAtTime(.12, time);
   gain.gain.exponentialRampToValueAtTime(.001, time + .035);
   tone.connect(gain).connect(state.master);
@@ -461,7 +503,7 @@ function schedule() {
     }
     if (!state.micStream) drum(time, note.accent ? .48 : .29);
     if (state.micStream) state.score.expect(time, tempoAt(projected));
-    if ($("metronome").checked && !state.micStream) {
+    if ($("metronome").checked) {
       for (let i = 0; i < note.units; i++) {
         if ((state.unitCount + i) % 4 === 0) click(time + i * unitLength);
       }
@@ -491,9 +533,13 @@ async function togglePractice() {
   const generation = state.generation;
   state.starting = true;
   wakeLock.start();
+  $("feedback").hidden = true;
   try {
     ensureAudio();
-    await state.audio.resume();
+    setAudioSessionType(state.micWanted ? "play-and-record" : "playback");
+    if (state.micWanted && !state.micStream) await openMicrophone();
+    else await state.audio.resume();
+    if (state.audio.state !== "running") throw new Error(`Audio context is ${state.audio.state}. Tap Start practice again.`);
   } catch (error) {
     if (generation !== state.generation) return;
     wakeLock.stop();
@@ -503,13 +549,15 @@ async function togglePractice() {
   }
   if (generation !== state.generation) return;
   state.starting = false;
-  $("feedback").hidden = true;
   if (state.elapsedBeforePause >= DURATION_SECONDS) state.elapsedBeforePause = 0;
   state.master.gain.setValueAtTime(Number($("volume").value) / 100, state.audio.currentTime);
   state.startedAt = performance.now();
   state.running = true;
   state.pending = [];
-  if (state.micWanted) void openMicrophone();
+  if (state.micStream) {
+    state.micListeningAt = performance.now();
+    micStatus("Listening · 0 hits detected · use headphones");
+  }
   if (state.phase === "count-in") setPhase("count-in");
   else if (state.phase === "break") state.phaseStartedAt = performance.now();
   state.nextNoteTime = state.audio.currentTime + .12;
